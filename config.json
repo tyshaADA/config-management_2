@@ -1,6 +1,6 @@
 {
   "package_name": "org.apache.commons:commons-lang3",
-  "repo_url": "https://maven.org",
+  "repo_url": "https://maven.aliyun.com/repository/public/",
   "test_mode": false,
   "package_version": "3.12.0",
   "ascii_tree_mode": true,
