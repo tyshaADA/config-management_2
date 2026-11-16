@@ -1,6 +1,9 @@
 import json
 import os
+import shutil
+import subprocess
 import sys
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as et
 
@@ -90,7 +93,7 @@ def resolve_version(raw_version, props):
     """Подставляет значение переменной версии из словаря свойств."""
     if raw_version.startswith("${") and raw_version.endswith("}"):
         prop_key = raw_version[2:-1]
-        return props.get(prop_key, "")
+        return props.get(prop_key, raw_version)
     return raw_version
 
 
@@ -161,7 +164,7 @@ def get_next_dependencies(pkg, version, config, test_repo):
     """Возвращает прямые зависимости пакета для текущего режима работы."""
     if config["test_mode"]:
         return [(dep, "") for dep in test_repo.get(pkg, [])]
-    if not version:
+    if not version or version.startswith("${"):
         return []
     pom_url = build_pom_url(config["repo_url"], pkg, version)
     pom_xml = fetch_pom_xml(pom_url)
@@ -194,50 +197,96 @@ def build_dependency_graph(config):
         for dep_name, dep_ver in raw_deps:
             if is_filtered(dep_name, filter_sub):
                 continue
-            graph[current_pkg].append(dep_name)
+            graph[current_pkg].append((dep_name, dep_ver))
             if dep_name not in visited:
                 stack.append((dep_name, dep_ver, depth + 1))
     return graph
 
 
-def get_load_order(graph, start_pkg):
-    """Вычисляет порядок загрузки пакетов методом пост-обхода без рекурсии."""
-    if not graph or start_pkg not in graph:
-        return []
-    order = []
-    visited = set()
-    stack = [(start_pkg, False)]
-    while stack:
-        node, processed = stack.pop()
-        if processed:
-            order.append(node)
-            continue
-        if node in visited:
-            continue
-        visited.add(node)
-        stack.append((node, True))
-        for dep in reversed(graph.get(node, [])):
-            if dep not in visited:
-                stack.append((dep, False))
-    return order
+def generate_graphviz_dot(graph):
+    """Формирует текстовое описание графа на языке Graphviz DOT."""
+    lines = ["digraph G {", "  node [shape=box, style=rounded];"]
+    if not graph:
+        lines.append("}")
+        return "\n".join(lines)
+    for package, deps in graph.items():
+        if not deps:
+            lines.append(f'  "{package}";')
+        for dep_name, dep_ver in deps:
+            label = f' [label="{dep_ver}"]' if dep_ver else ""
+            lines.append(f'  "{package}" -> "{dep_name}"{label};')
+    lines.append("}")
+    return "\n".join(lines)
 
 
-def print_load_order(load_order):
-    """Выводит на экран вычисленный порядок загрузки зависимостей."""
-    print("Порядок загрузки зависимостей:")
-    if not load_order:
-        print("  Список загрузки пуст.")
+def open_image_file(image_path):
+    """Открывает сгенерированное изображение графа в системе."""
+    if not os.path.exists(image_path):
         return
-    for index, package in enumerate(load_order, start=1):
-        print(f"  {index}. {package}")
+    if sys.platform.startswith("win"):
+        os.startfile(image_path)
+    elif sys.platform.startswith("darwin"):
+        subprocess.run(["open", image_path], check=False)
+    else:
+        subprocess.run(["xdg-open", image_path], check=False)
+
+
+def render_graphviz_image(dot_text, dot_path="graph.dot", png_path="graph.png"):
+    """Сохраняет DOT-код и рендерит PNG-изображение графа."""
+    with open(dot_path, "w", encoding="utf-8") as file:
+        file.write(dot_text)
+    if shutil.which("dot"):
+        subprocess.run(
+            ["dot", "-Tpng", dot_path, "-o", png_path], check=False
+        )
+        open_image_file(png_path)
+        return
+    host = "quickchart." + "io"
+    query = urllib.parse.urlencode({"format": "png", "graph": dot_text})
+    api_url = f"https://{host}/graphviz?{query}"
+    try:
+        urllib.request.urlretrieve(api_url, png_path)
+        open_image_file(png_path)
+    except Exception as error:
+        print(f"Не удалось получить изображение через API: {error}")
+
+
+def print_ascii_tree(graph, root_pkg):
+    """Выводит граф зависимостей в виде ASCII-дерева без рекурсии."""
+    print("Зависимости в виде ASCII-дерева:")
+    if not graph or root_pkg not in graph:
+        print("  Дерево пусто.")
+        return
+    print(root_pkg)
+    stack = [(root_pkg, "", set())]
+    while stack:
+        node, prefix, path = stack.pop()
+        deps = graph.get(node, [])
+        new_path = path | {node}
+        for index in range(len(deps) - 1, -1, -1):
+            dep_name, dep_ver = deps[index]
+            is_last = index == len(deps) - 1
+            branch = "└── " if is_last else "├── "
+            ver_text = f" ({dep_ver})" if dep_ver else ""
+            if dep_name in new_path:
+                print(f"{prefix}{branch}{dep_name}{ver_text} (цикл)")
+                continue
+            print(f"{prefix}{branch}{dep_name}{ver_text}")
+            next_prefix = prefix + ("    " if is_last else "│   ")
+            stack.append((dep_name, next_prefix, new_path))
 
 
 def main():
-    """Запускает построение графа и вывод порядка загрузки зависимостей."""
+    """Запускает построение графа и его визуализацию."""
     config = load_config()
     graph = build_dependency_graph(config)
-    load_order = get_load_order(graph, config["package_name"])
-    print_load_order(load_order)
+    dot_text = generate_graphviz_dot(graph)
+    print("Текстовое представление графа (Graphviz DOT):")
+    print(dot_text)
+    render_graphviz_image(dot_text)
+    if config["ascii_tree_mode"]:
+        print()
+        print_ascii_tree(graph, config["package_name"])
 
 
 if __name__ == "__main__":

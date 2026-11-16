@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.abspath("src"))
-from main import build_dependency_graph, get_load_order
+from main import build_dependency_graph, generate_graphviz_dot
 
 DEPTH_FULL = 10
 DEPTH_ONE = 1
@@ -24,7 +24,7 @@ def make_test_config(pkg, max_depth=DEPTH_FULL, filter_sub=""):
 
 
 class TestDependencyGraph(unittest.TestCase):
-    """Тесты построения графа и порядка загрузки зависимостей."""
+    """Тесты построения и визуализации графа зависимостей."""
 
     def test_cycles_and_diamond_graph(self):
         """Проверяет обработку циклов и общих (ромбовидных) узлов."""
@@ -56,21 +56,14 @@ class TestDependencyGraph(unittest.TestCase):
         graph = build_dependency_graph(config)
         self.assertEqual(graph, {})
 
-    def test_isolated_component_load_order(self):
-        """Проверяет порядок загрузки для простой ветки Z -> M."""
+    def test_graphviz_dot_generation(self):
+        """Проверяет формирование синтаксиса Graphviz DOT для ветки Z -> M."""
         config = make_test_config("Z")
         graph = build_dependency_graph(config)
-        order = get_load_order(graph, "Z")
-        self.assertEqual(order, ["M", "Z"])
-
-    def test_load_order_dependencies_before_root(self):
-        """Проверяет, что зависимости загружаются строго раньше корня."""
-        config = make_test_config("A", filter_sub="TEST")
-        graph = build_dependency_graph(config)
-        order = get_load_order(graph, "A")
-        self.assertEqual(order[-1], "A")
-        self.assertLess(order.index("I"), order.index("F"))
-        self.assertLess(order.index("F"), order.index("B"))
+        dot_output = generate_graphviz_dot(graph)
+        self.assertIn("digraph G {", dot_output)
+        self.assertIn('"Z" -> "M";', dot_output)
+        self.assertIn('"M";', dot_output)
 
 
 if __name__ == "__main__":
