@@ -200,16 +200,44 @@ def build_dependency_graph(config):
     return graph
 
 
+def get_load_order(graph, start_pkg):
+    """Вычисляет порядок загрузки пакетов методом пост-обхода без рекурсии."""
+    if not graph or start_pkg not in graph:
+        return []
+    order = []
+    visited = set()
+    stack = [(start_pkg, False)]
+    while stack:
+        node, processed = stack.pop()
+        if processed:
+            order.append(node)
+            continue
+        if node in visited:
+            continue
+        visited.add(node)
+        stack.append((node, True))
+        for dep in reversed(graph.get(node, [])):
+            if dep not in visited:
+                stack.append((dep, False))
+    return order
+
+
+def print_load_order(load_order):
+    """Выводит на экран вычисленный порядок загрузки зависимостей."""
+    print("Порядок загрузки зависимостей:")
+    if not load_order:
+        print("  Список загрузки пуст.")
+        return
+    for index, package in enumerate(load_order, start=1):
+        print(f"  {index}. {package}")
+
+
 def main():
-    """Запускает построение и вывод графа зависимостей."""
+    """Запускает построение графа и вывод порядка загрузки зависимостей."""
     config = load_config()
     graph = build_dependency_graph(config)
-    print(f"Граф зависимостей для '{config['package_name']}':")
-    if not graph:
-        print("Граф пуст (пакет отфильтрован или не найден).")
-    for package, deps in graph.items():
-        deps_str = ", ".join(deps) if deps else "нет зависимостей"
-        print(f"  {package} -> [{deps_str}]")
+    load_order = get_load_order(graph, config["package_name"])
+    print_load_order(load_order)
 
 
 if __name__ == "__main__":

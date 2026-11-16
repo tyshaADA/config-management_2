@@ -3,7 +3,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.abspath("src"))
-from main import build_dependency_graph
+from main import build_dependency_graph, get_load_order
 
 DEPTH_FULL = 10
 DEPTH_ONE = 1
@@ -24,7 +24,7 @@ def make_test_config(pkg, max_depth=DEPTH_FULL, filter_sub=""):
 
 
 class TestDependencyGraph(unittest.TestCase):
-    """Тесты построения графа зависимостей для различных случаев."""
+    """Тесты построения графа и порядка загрузки зависимостей."""
 
     def test_cycles_and_diamond_graph(self):
         """Проверяет обработку циклов и общих (ромбовидных) узлов."""
@@ -56,11 +56,21 @@ class TestDependencyGraph(unittest.TestCase):
         graph = build_dependency_graph(config)
         self.assertEqual(graph, {})
 
-    def test_isolated_component(self):
-        """Проверяет обход отдельной независимой ветки графа."""
+    def test_isolated_component_load_order(self):
+        """Проверяет порядок загрузки для простой ветки Z -> M."""
         config = make_test_config("Z")
         graph = build_dependency_graph(config)
-        self.assertEqual(graph, {"Z": ["M"], "M": []})
+        order = get_load_order(graph, "Z")
+        self.assertEqual(order, ["M", "Z"])
+
+    def test_load_order_dependencies_before_root(self):
+        """Проверяет, что зависимости загружаются строго раньше корня."""
+        config = make_test_config("A", filter_sub="TEST")
+        graph = build_dependency_graph(config)
+        order = get_load_order(graph, "A")
+        self.assertEqual(order[-1], "A")
+        self.assertLess(order.index("I"), order.index("F"))
+        self.assertLess(order.index("F"), order.index("B"))
 
 
 if __name__ == "__main__":
